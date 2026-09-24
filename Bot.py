@@ -33,8 +33,8 @@ from telegram.ext import (
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 OWNER_ID = os.environ.get("OWNER_ID")
-UPDATE_CHANNEL = os.environ.get("UPDATE_CHANNEL", "")
-SUPPORT_CHANNEL = os.environ.get("SUPPORT_CHANNEL", "")
+UPDATE_CHANNEL = os.environ.get("UPDATE_CHANNEL", "https://t.me/annu_support")
+SUPPORT_CHANNEL = os.environ.get("SUPPORT_CHANNEL", "https://t.me/annu_updates")
 
 MONGO_URI = os.environ.get("MONGO_URI")
 MONGO_DB = os.environ.get("MONGO_DB", "bioguard")
