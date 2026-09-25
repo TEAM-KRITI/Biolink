@@ -36,6 +36,8 @@ from telegram.ext import (
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 OWNER_ID_RAW = os.getenv("OWNER_ID", "").strip()
+# Optional owner username; set without @ in Heroku Config Vars.
+OWNER_USERNAME = os.getenv("OWNER_USERNAME", "").strip().lstrip("@").strip()
 
 UPDATE_CHANNEL = os.getenv(
     "UPDATE_CHANNEL",
