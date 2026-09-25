@@ -1,5 +1,5 @@
 # ============================================================
-#                 BIOGUARD / BIOMUTEBOT
+#                  BIOGUARD / BIOMUTEBOT
 #          Telegram Bio + Link Protection Bot
 # ============================================================
 
@@ -48,13 +48,16 @@ SUPPORT_CHANNEL = os.getenv(
     "https://t.me/annu_updates",
 )
 
-# Default mute duration
-DEFAULT_MUTE_HOURS = int(
-    os.getenv("MUTE_DURATION", "2")
-)
+try:
+    DEFAULT_MUTE_HOURS = int(
+        os.getenv("MUTE_DURATION", "2")
+    )
+except ValueError:
+    DEFAULT_MUTE_HOURS = 2
+
 
 # ============================================================
-# REQUIRED CONFIG CHECK
+# REQUIRED CONFIG
 # ============================================================
 
 if not BOT_TOKEN:
@@ -76,8 +79,9 @@ try:
     OWNER_ID = int(OWNER_ID_RAW)
 except ValueError:
     raise ValueError(
-        "OWNER_ID must contain a numeric Telegram user ID."
+        "OWNER_ID must be a numeric Telegram user ID."
     )
+
 
 # ============================================================
 # LOGGING
@@ -89,6 +93,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("BioGuard")
+
 
 # ============================================================
 # MONGODB
@@ -102,7 +107,6 @@ try:
         socketTimeoutMS=10000,
     )
 
-    # Test connection
     mongo.admin.command("ping")
 
     db = mongo[MONGO_DB]
@@ -128,20 +132,28 @@ try:
         MONGO_DB,
     )
 
-except PyMongoError as e:
-    logger.exception("MongoDB connection failed: %s", e)
+except PyMongoError as error:
+    logger.exception(
+        "MongoDB connection failed: %s",
+        error,
+    )
     raise
 
-# ============================================================
-# DATABASE HELPERS
-# ============================================================
 
+# ============================================================
+# TIME
+# ============================================================
 
 def now_utc():
     return datetime.now(timezone.utc)
 
 
+# ============================================================
+# USER DATABASE
+# ============================================================
+
 def save_user(user):
+
     if not user:
         return
 
@@ -160,11 +172,20 @@ def save_user(user):
             },
             upsert=True,
         )
-    except PyMongoError as e:
-        logger.warning("save_user error: %s", e)
 
+    except PyMongoError as error:
+        logger.warning(
+            "save_user error: %s",
+            error,
+        )
+
+
+# ============================================================
+# GROUP DATABASE
+# ============================================================
 
 def save_group(chat):
+
     if not chat:
         return
 
@@ -182,11 +203,20 @@ def save_group(chat):
             },
             upsert=True,
         )
-    except PyMongoError as e:
-        logger.warning("save_group error: %s", e)
 
+    except PyMongoError as error:
+        logger.warning(
+            "save_group error: %s",
+            error,
+        )
+
+
+# ============================================================
+# MUTE SETTINGS
+# ============================================================
 
 def get_mute_duration():
+
     try:
         data = settings_collection.find_one(
             {"_id": "global"}
@@ -210,6 +240,7 @@ def get_mute_duration():
 
 
 def set_mute_duration(hours):
+
     hours = max(1, int(hours))
 
     settings_collection.update_one(
@@ -223,7 +254,12 @@ def set_mute_duration(hours):
     )
 
 
+# ============================================================
+# WARNING SYSTEM
+# ============================================================
+
 def get_warning(chat_id, user_id):
+
     try:
         data = warnings_collection.find_one(
             {
@@ -235,15 +271,22 @@ def get_warning(chat_id, user_id):
         if not data:
             return 0
 
-        return int(data.get("count", 0))
+        return int(
+            data.get("count", 0)
+        )
 
     except Exception:
         return 0
 
 
 def add_warning(chat_id, user_id):
-    old = get_warning(chat_id, user_id)
-    new_count = old + 1
+
+    old_count = get_warning(
+        chat_id,
+        user_id,
+    )
+
+    new_count = old_count + 1
 
     warnings_collection.update_one(
         {
@@ -263,6 +306,7 @@ def add_warning(chat_id, user_id):
 
 
 def reset_warning(chat_id, user_id):
+
     try:
         warnings_collection.delete_one(
             {
@@ -270,39 +314,38 @@ def reset_warning(chat_id, user_id):
                 "user_id": user_id,
             }
         )
-    except PyMongoError as e:
+
+    except PyMongoError as error:
         logger.warning(
             "reset_warning error: %s",
-            e,
+            error,
         )
+
 
 # ============================================================
 # FREE USER SYSTEM
 # ============================================================
 
-
 def is_free_user(user_id):
+
     try:
         return bool(
             free_users_collection.find_one(
                 {"_id": user_id}
             )
         )
+
     except Exception:
         return False
 
 
-def add_free_user(user):
-    if not user:
-        return
+def add_free_user(user_id):
 
     free_users_collection.update_one(
-        {"_id": user.id},
+        {"_id": user_id},
         {
             "$set": {
-                "user_id": user.id,
-                "first_name": user.first_name or "",
-                "username": user.username or "",
+                "user_id": user_id,
                 "added_at": now_utc(),
             }
         },
@@ -311,12 +354,14 @@ def add_free_user(user):
 
 
 def remove_free_user(user_id):
+
     free_users_collection.delete_one(
         {"_id": user_id}
     )
 
+
 # ============================================================
-# LINK / USERNAME DETECTION
+# LINK DETECTION
 # ============================================================
 
 LINK_REGEX = re.compile(
@@ -344,6 +389,7 @@ USERNAME_REGEX = re.compile(
 
 
 def has_link(text):
+
     if not text:
         return False
 
@@ -353,6 +399,7 @@ def has_link(text):
 
 
 def has_username(text):
+
     if not text:
         return False
 
@@ -362,6 +409,7 @@ def has_username(text):
 
 
 def has_forbidden_content(text):
+
     if not text:
         return False
 
@@ -370,35 +418,45 @@ def has_forbidden_content(text):
         or has_username(text)
     )
 
-# ============================================================
-# TELEGRAM HELPERS
-# ============================================================
 
+# ============================================================
+# BOT HELPERS
+# ============================================================
 
 async def get_bot_username(context):
+
     try:
-        me = await context.bot.get_me()
-        return me.username or ""
+        bot = await context.bot.get_me()
+        return bot.username or ""
+
     except TelegramError:
         return ""
 
 
-async def get_user_bio(context, user_id):
+async def get_user_bio(
+    context,
+    user_id,
+):
+
     try:
         chat = await context.bot.get_chat(
             user_id
         )
-        return chat.bio or ""
+
+        return getattr(
+            chat,
+            "bio",
+            "",
+        ) or ""
+
     except TelegramError:
         return ""
 
 
-async def is_subscribed(context, user_id):
-    """
-    Checks update channel membership.
-
-    If UPDATE_CHANNEL is empty, subscription check is disabled.
-    """
+async def is_subscribed(
+    context,
+    user_id,
+):
 
     if not UPDATE_CHANNEL:
         return True
@@ -415,19 +473,26 @@ async def is_subscribed(context, user_id):
             "creator",
         )
 
-    except TelegramError as e:
+    except TelegramError as error:
+
         logger.warning(
             "Subscription check failed: %s",
-            e,
+            error,
         )
 
-        # Do not lock everyone out if the channel check
-        # itself cannot be completed.
+        # Don't block /start if Telegram
+        # cannot perform the check.
         return True
 
 
-async def is_admin(context, chat_id, user_id):
+async def is_admin(
+    context,
+    chat_id,
+    user_id,
+):
+
     try:
+
         member = await context.bot.get_chat_member(
             chat_id,
             user_id,
@@ -441,21 +506,26 @@ async def is_admin(context, chat_id, user_id):
     except TelegramError:
         return False
 
-# ============================================================
-# URL HELPERS
-# ============================================================
 
+# ============================================================
+# URL HELPER
+# ============================================================
 
 def normalize_channel_url(value):
+
     if not value:
         return ""
 
     value = value.strip()
 
-    if value.startswith("https://t.me/"):
+    if value.startswith(
+        "https://t.me/"
+    ):
         return value
 
-    if value.startswith("http://t.me/"):
+    if value.startswith(
+        "http://t.me/"
+    ):
         return value.replace(
             "http://",
             "https://",
@@ -473,24 +543,25 @@ def normalize_channel_url(value):
         + value
     )
 
-# ============================================================
-# KEYBOARDS
-# ============================================================
 
+# ============================================================
+# START KEYBOARD
+# ============================================================
 
 def start_keyboard(bot_username):
 
     rows = []
 
     if bot_username:
+
         rows.append(
             [
                 InlineKeyboardButton(
                     "➕ ᴀᴅᴅ ᴍᴇ ᴛᴏ ɢʀᴏᴜᴘ",
                     url=(
-                        "https://t.me/"
+                        f"https://t.me/"
                         f"{bot_username}"
-                        "?startgroup=true"
+                        f"?startgroup=true"
                     ),
                 )
             ]
@@ -507,6 +578,7 @@ def start_keyboard(bot_username):
     )
 
     if update_url:
+
         second_row.append(
             InlineKeyboardButton(
                 "🔄 ᴜᴘᴅᴀᴛᴇ",
@@ -515,6 +587,7 @@ def start_keyboard(bot_username):
         )
 
     if support_url:
+
         second_row.append(
             InlineKeyboardButton(
                 "💬 sᴜᴘᴘᴏʀᴛ",
@@ -537,6 +610,10 @@ def start_keyboard(bot_username):
     return InlineKeyboardMarkup(rows)
 
 
+# ============================================================
+# HELP KEYBOARD
+# ============================================================
+
 def help_keyboard():
 
     return InlineKeyboardMarkup(
@@ -553,11 +630,11 @@ def help_keyboard():
             ],
             [
                 InlineKeyboardButton(
-                    "⚠️ ᴡᴀʀɴɪɴɢ sʏsᴛᴇᴍ",
+                    "⚠️ ᴡᴀʀɴɪɴɢ",
                     callback_data="warnings",
                 ),
                 InlineKeyboardButton(
-                    "🔇 ᴍᴜᴛᴇ sʏsᴛᴇᴍ",
+                    "🔇 ᴍᴜᴛᴇ",
                     callback_data="mute",
                 ),
             ],
@@ -570,6 +647,10 @@ def help_keyboard():
         ]
     )
 
+
+# ============================================================
+# BACK KEYBOARD
+# ============================================================
 
 def back_keyboard():
 
@@ -585,6 +666,10 @@ def back_keyboard():
     )
 
 
+# ============================================================
+# MUTE KEYBOARD
+# ============================================================
+
 def mute_keyboard(bot_username):
 
     rows = []
@@ -598,6 +683,7 @@ def mute_keyboard(bot_username):
     )
 
     if update_url:
+
         rows.append(
             [
                 InlineKeyboardButton(
@@ -608,6 +694,7 @@ def mute_keyboard(bot_username):
         )
 
     if support_url:
+
         rows.append(
             [
                 InlineKeyboardButton(
@@ -618,6 +705,7 @@ def mute_keyboard(bot_username):
         )
 
     if bot_username:
+
         rows.append(
             [
                 InlineKeyboardButton(
@@ -632,10 +720,10 @@ def mute_keyboard(bot_username):
 
     return InlineKeyboardMarkup(rows)
 
-# ============================================================
-# MUTE / UNMUTE
-# ============================================================
 
+# ============================================================
+# MUTE USER
+# ============================================================
 
 async def mute_user(
     context,
@@ -664,6 +752,10 @@ async def mute_user(
     )
 
 
+# ============================================================
+# PERMANENT MUTE
+# ============================================================
+
 async def permanent_mute(
     context,
     chat_id,
@@ -680,6 +772,10 @@ async def permanent_mute(
         permissions=permissions,
     )
 
+
+# ============================================================
+# UNMUTE
+# ============================================================
 
 async def unmute_user(
     context,
@@ -706,10 +802,10 @@ async def unmute_user(
         permissions=permissions,
     )
 
+
 # ============================================================
 # MUTE NOTICE
 # ============================================================
-
 
 async def send_mute_notice(
     context,
@@ -723,17 +819,15 @@ async def send_mute_notice(
         context
     )
 
-    safe_name = (
-        user.first_name
-        or "User"
-    )
+    name = user.first_name or "User"
 
     text = (
         "⚔️ <b>ʙɪᴏɢᴜᴀʀᴅ ᴍᴜᴛᴇ</b>\n\n"
-        f"👤 <b>ᴜsᴇʀ:</b> {safe_name}\n"
+        f"👤 <b>ᴜsᴇʀ:</b> {name}\n"
         f"🆔 <b>ɪᴅ:</b> "
         f"<code>{user.id}</code>\n\n"
-        f"⛔ <b>ʀᴇᴀsᴏɴ:</b> {reason}\n"
+        f"⛔ <b>ʀᴇᴀsᴏɴ:</b> "
+        f"{reason}\n"
         f"⏱ <b>ᴅᴜʀᴀᴛɪᴏɴ:</b> "
         f"{duration_text}"
     )
@@ -743,32 +837,37 @@ async def send_mute_notice(
     )
 
     try:
+
         await context.bot.send_message(
             chat_id=chat_id,
             text=text,
             parse_mode="HTML",
             reply_markup=markup,
         )
-    except TelegramError as e:
+
+    except TelegramError as error:
+
         logger.warning(
-            "Mute notice error: %s",
-            e,
+            "Group mute notice error: %s",
+            error,
         )
 
     try:
+
         await context.bot.send_message(
             chat_id=user.id,
             text=text,
             parse_mode="HTML",
             reply_markup=markup,
         )
+
     except TelegramError:
         pass
+
 
 # ============================================================
 # MAIN MODERATION
 # ============================================================
-
 
 async def check_message(
     update: Update,
@@ -805,17 +904,21 @@ async def check_message(
     save_group(chat)
 
     # --------------------------------------------------------
-    # BOT / OWNER
+    # BOT
     # --------------------------------------------------------
 
     if user.is_bot:
         return
 
+    # --------------------------------------------------------
+    # OWNER
+    # --------------------------------------------------------
+
     if user.id == OWNER_ID:
         return
 
     # --------------------------------------------------------
-    # ADMIN EXEMPTION
+    # ADMIN
     # --------------------------------------------------------
 
     if await is_admin(
@@ -833,7 +936,7 @@ async def check_message(
         return
 
     # --------------------------------------------------------
-    # NAME CHECK
+    # USER NAME
     # --------------------------------------------------------
 
     full_name = " ".join(
@@ -876,17 +979,17 @@ async def check_message(
                 "ᴘᴇʀᴍᴀɴᴇɴᴛ",
             )
 
-        except TelegramError as e:
+        except TelegramError as error:
 
             logger.error(
                 "Name mute error: %s",
-                e,
+                error,
             )
 
         return
 
     # --------------------------------------------------------
-    # MESSAGE CHECK
+    # MESSAGE TEXT
     # --------------------------------------------------------
 
     message_text = (
@@ -900,7 +1003,7 @@ async def check_message(
     )
 
     # --------------------------------------------------------
-    # BIO CHECK
+    # BIO
     # --------------------------------------------------------
 
     bio = await get_user_bio(
@@ -939,9 +1042,13 @@ async def check_message(
         user.id,
     )
 
-    if count <= 3:
+    # --------------------------------------------------------
+    # WARNING MESSAGE
+    # --------------------------------------------------------
 
-        text = (
+    if count < 3:
+
+        warning_text = (
             "⚠️ <b>ʟɪɴᴋ ᴡᴀʀɴɪɴɢ</b>\n\n"
             f"👤 <b>{user.first_name or 'User'}</b>\n\n"
             "🚫 Links/usernames are not "
@@ -952,29 +1059,31 @@ async def check_message(
         )
 
         try:
+
             await context.bot.send_message(
                 chat_id=chat.id,
-                text=text,
+                text=warning_text,
                 parse_mode="HTML",
             )
+
         except TelegramError:
             pass
 
         try:
+
             await context.bot.send_message(
                 chat_id=user.id,
-                text=text,
+                text=warning_text,
                 parse_mode="HTML",
             )
+
         except TelegramError:
             pass
 
-        # On third warning mute immediately.
-        if count < 3:
-            return
+        return
 
     # --------------------------------------------------------
-    # MUTE
+    # 3 WARNINGS = MUTE
     # --------------------------------------------------------
 
     duration = get_mute_duration()
@@ -1001,17 +1110,17 @@ async def check_message(
             user.id,
         )
 
-    except TelegramError as e:
+    except TelegramError as error:
 
         logger.error(
             "Mute error: %s",
-            e,
+            error,
         )
+
 
 # ============================================================
 # START
 # ============================================================
-
 
 async def start(
     update: Update,
@@ -1033,7 +1142,7 @@ async def start(
         save_group(chat)
 
     # --------------------------------------------------------
-    # PRIVATE SUBSCRIPTION CHECK
+    # SUBSCRIPTION CHECK ONLY IN PRIVATE
     # --------------------------------------------------------
 
     if chat.type == ChatType.PRIVATE:
@@ -1049,10 +1158,11 @@ async def start(
                 UPDATE_CHANNEL
             )
 
-            keyboard = []
+            buttons = []
 
             if channel_url:
-                keyboard.append(
+
+                buttons.append(
                     [
                         InlineKeyboardButton(
                             "🔗 ᴊᴏɪɴ ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ",
@@ -1061,7 +1171,7 @@ async def start(
                     ]
                 )
 
-            keyboard.append(
+            buttons.append(
                 [
                     InlineKeyboardButton(
                         "🔄 ᴄʜᴇᴄᴋ ᴀɢᴀɪɴ",
@@ -1070,23 +1180,29 @@ async def start(
                 ]
             )
 
-            return await update.message.reply_text(
+            await update.message.reply_text(
                 "🚫 <b>ᴀᴄᴄᴇss ʀᴇsᴛʀɪᴄᴛᴇᴅ</b>\n\n"
                 "Please join our update channel first.\n\n"
                 "After joining, press "
                 "<b>Check Again</b>.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(
-                    keyboard
+                    buttons
                 ),
             )
+
+            return
+
+    # --------------------------------------------------------
+    # BOT USERNAME
+    # --------------------------------------------------------
 
     bot_username = await get_bot_username(
         context
     )
 
     # --------------------------------------------------------
-    # START TEXT
+    # START MESSAGE
     # --------------------------------------------------------
 
     caption = (
@@ -1103,20 +1219,18 @@ async def start(
         "ᴄʟᴇᴀɴ & sᴀғᴇ.</i>"
     )
 
-    if update.message:
+    await update.message.reply_text(
+        caption,
+        parse_mode="HTML",
+        reply_markup=start_keyboard(
+            bot_username
+        ),
+    )
 
-        await update.message.reply_text(
-            caption,
-            parse_mode="HTML",
-            reply_markup=start_keyboard(
-                bot_username
-            ),
-        )
 
 # ============================================================
-# HELP
+# HELP COMMAND
 # ============================================================
-
 
 async def help_command(
     update: Update,
@@ -1128,20 +1242,18 @@ async def help_command(
 
     text = (
         "❔ <b>ʙɪᴏɢᴜᴀʀᴅ ʜᴇʟᴘ</b>\n\n"
-        "🛡 <b>ʙɪᴏɢᴜᴀʀᴅ</b> protects groups "
-        "from unwanted links and usernames.\n\n"
+        "🛡 <b>ʙɪᴏɢᴜᴀʀᴅ</b> protects Telegram "
+        "groups from unwanted links and usernames.\n\n"
         "🔗 <b>ʟɪɴᴋ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ</b>\n"
         "Detects links and usernames in "
         "messages and captions.\n\n"
         "👤 <b>ʙɪᴏ ᴘʀᴏᴛᴇᴄᴛɪᴏɴ</b>\n"
-        "Checks user bios for forbidden "
-        "links/usernames.\n\n"
+        "Checks user bios for forbidden content.\n\n"
         "⚠️ <b>ᴡᴀʀɴɪɴɢ</b>\n"
         "Users receive up to 3 warnings.\n\n"
-        "🔇 <b>ᴍᴜᴛᴇ</b>\n"
-        "After 3 warnings, the user is "
-        "automatically muted.\n\n"
-        "👑 <b>ᴀᴅᴍɪɴs</b>\n"
+        "🔇 <b>ᴀᴜᴛᴏ ᴍᴜᴛᴇ</b>\n"
+        "After 3 warnings, the user is muted.\n\n"
+        "👑 <b>ᴀᴅᴍɪɴ</b>\n"
         "Group administrators are exempt."
     )
 
@@ -1151,10 +1263,10 @@ async def help_command(
         reply_markup=help_keyboard(),
     )
 
-# ============================================================
-# STATUS
-# ============================================================
 
+# ============================================================
+# STATUS COMMAND
+# ============================================================
 
 async def status_command(
     update: Update,
@@ -1169,17 +1281,34 @@ async def status_command(
     if not user:
         return
 
+    chat = update.effective_chat
+
+    warning_count = 0
+
+    if chat:
+
+        warning_count = get_warning(
+            chat.id,
+            user.id,
+        )
+
+    mute_duration = get_mute_duration()
+
+    user_name = (
+        user.first_name
+        or "User"
+    )
+
     text = (
         "⚔️ <b>ʙɪᴏɢᴜᴀʀᴅ sᴛᴀᴛᴜs</b>\n\n"
         f"👤 <b>ᴜsᴇʀ:</b> "
-        f"{user.first_name or 'User'}\n"
+        f"{user_name}\n"
         f"🆔 <b>ɪᴅ:</b> "
         f"<code>{user.id}</code>\n\n"
         f"⚠️ <b>ᴡᴀʀɴɪɴɢs:</b> "
-        f"{get_warning(update.effective_chat.id, user.id) "
-        if update.effective_chat else 0}/3\n"
+        f"{warning_count}/3\n"
         f"⏱ <b>ᴍᴜᴛᴇ ᴅᴜʀᴀᴛɪᴏɴ:</b> "
-        f"{get_mute_duration()} hour(s)"
+        f"{mute_duration} hour(s)"
     )
 
     await update.message.reply_text(
@@ -1187,10 +1316,10 @@ async def status_command(
         parse_mode="HTML",
     )
 
-# ============================================================
-# OWNER COMMANDS
-# ============================================================
 
+# ============================================================
+# FREE COMMAND
+# ============================================================
 
 async def free_command(
     update: Update,
@@ -1199,40 +1328,54 @@ async def free_command(
 
     user = update.effective_user
 
-    if not user or user.id != OWNER_ID:
+    if not user:
+        return
+
+    if user.id != OWNER_ID:
+
+        await update.message.reply_text(
+            "❌ Owner only."
+        )
+
         return
 
     if not context.args:
-        return await update.message.reply_text(
+
+        await update.message.reply_text(
             "Usage:\n"
             "/free <user_id>"
         )
 
-    try:
-        user_id = int(context.args[0])
-        add_free_user(
-            type(
-                "User",
-                (),
-                {
-                    "id": user_id,
-                    "first_name": "",
-                    "username": "",
-                },
-            )()
-        )
+        return
 
-        await update.message.reply_text(
-            f"✅ User <code>{user_id}</code> "
-            "added to free list.",
-            parse_mode="HTML",
+    try:
+
+        user_id = int(
+            context.args[0]
         )
 
     except ValueError:
+
         await update.message.reply_text(
             "❌ Invalid user ID."
         )
 
+        return
+
+    add_free_user(
+        user_id
+    )
+
+    await update.message.reply_text(
+        f"✅ User <code>{user_id}</code> "
+        "added to free list.",
+        parse_mode="HTML",
+    )
+
+
+# ============================================================
+# UNFREE COMMAND
+# ============================================================
 
 async def unfree_command(
     update: Update,
@@ -1241,31 +1384,54 @@ async def unfree_command(
 
     user = update.effective_user
 
-    if not user or user.id != OWNER_ID:
+    if not user:
+        return
+
+    if user.id != OWNER_ID:
+
+        await update.message.reply_text(
+            "❌ Owner only."
+        )
+
         return
 
     if not context.args:
-        return await update.message.reply_text(
+
+        await update.message.reply_text(
             "Usage:\n"
             "/unfree <user_id>"
         )
 
+        return
+
     try:
-        user_id = int(context.args[0])
 
-        remove_free_user(user_id)
-
-        await update.message.reply_text(
-            f"✅ User <code>{user_id}</code> "
-            "removed from free list.",
-            parse_mode="HTML",
+        user_id = int(
+            context.args[0]
         )
 
     except ValueError:
+
         await update.message.reply_text(
             "❌ Invalid user ID."
         )
 
+        return
+
+    remove_free_user(
+        user_id
+    )
+
+    await update.message.reply_text(
+        f"✅ User <code>{user_id}</code> "
+        "removed from free list.",
+        parse_mode="HTML",
+    )
+
+
+# ============================================================
+# SET MUTE
+# ============================================================
 
 async def setmute_command(
     update: Update,
@@ -1274,40 +1440,59 @@ async def setmute_command(
 
     user = update.effective_user
 
-    if not user or user.id != OWNER_ID:
+    if not user:
+        return
+
+    if user.id != OWNER_ID:
+
+        await update.message.reply_text(
+            "❌ Owner only."
+        )
+
         return
 
     if not context.args:
-        return await update.message.reply_text(
+
+        await update.message.reply_text(
             f"Current mute duration: "
             f"{get_mute_duration()} hour(s)\n\n"
             "Usage:\n"
             "/setmute <hours>"
         )
 
+        return
+
     try:
-        hours = int(context.args[0])
+
+        hours = int(
+            context.args[0]
+        )
 
         if hours < 1:
             raise ValueError
 
-        set_mute_duration(hours)
-
-        await update.message.reply_text(
-            f"✅ Mute duration set to "
-            f"<b>{hours} hour(s)</b>.",
-            parse_mode="HTML",
-        )
-
     except ValueError:
+
         await update.message.reply_text(
             "❌ Enter a valid number greater than 0."
         )
 
-# ============================================================
-# CALLBACKS
-# ============================================================
+        return
 
+    set_mute_duration(
+        hours
+    )
+
+    await update.message.reply_text(
+        f"✅ Mute duration set to "
+        f"<b>{hours} hour(s)</b>.",
+        parse_mode="HTML",
+    )
+
+
+# ============================================================
+# CALLBACK HANDLER
+# ============================================================
 
 async def callback_handler(
     update: Update,
@@ -1327,6 +1512,10 @@ async def callback_handler(
         context
     )
 
+    # --------------------------------------------------------
+    # START
+    # --------------------------------------------------------
+
     if data == "start":
 
         text = (
@@ -1338,10 +1527,13 @@ async def callback_handler(
             "⚠️ ᴀᴜᴛᴏ ᴡᴀʀɴɪɴɢ sʏsᴛᴇᴍ\n"
             "🔇 ᴀᴜᴛᴏ ᴍᴜᴛᴇ sʏsᴛᴇᴍ\n"
             "🛡 ᴀᴅᴍɪɴ ᴇxᴇᴍᴘᴛɪᴏɴ\n"
-            "✨ ᴘᴇʀsɪsᴛᴇɴᴛ ᴍᴏɴɪᴛᴏʀɪɴɢ"
+            "✨ ᴘᴇʀsɪsᴛᴇɴᴛ ᴍᴏɴɪᴛᴏʀɪɴɢ\n\n"
+            "💫 <i>ᴋᴇᴇᴘ ʏᴏᴜʀ ɢʀᴏᴜᴘ "
+            "ᴄʟᴇᴀɴ & sᴀғᴇ.</i>"
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
@@ -1349,10 +1541,15 @@ async def callback_handler(
                     bot_username
                 ),
             )
+
         except TelegramError:
             pass
 
         return
+
+    # --------------------------------------------------------
+    # HELP
+    # --------------------------------------------------------
 
     if data == "help":
 
@@ -1362,15 +1559,21 @@ async def callback_handler(
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
                 reply_markup=help_keyboard(),
             )
+
         except TelegramError:
             pass
 
         return
+
+    # --------------------------------------------------------
+    # LINKS
+    # --------------------------------------------------------
 
     if data == "links":
 
@@ -1392,15 +1595,21 @@ async def callback_handler(
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
                 reply_markup=back_keyboard(),
             )
+
         except TelegramError:
             pass
 
         return
+
+    # --------------------------------------------------------
+    # BIO
+    # --------------------------------------------------------
 
     if data == "bio":
 
@@ -1413,15 +1622,21 @@ async def callback_handler(
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
                 reply_markup=back_keyboard(),
             )
+
         except TelegramError:
             pass
 
         return
+
+    # --------------------------------------------------------
+    # WARNINGS
+    # --------------------------------------------------------
 
     if data == "warnings":
 
@@ -1430,20 +1645,26 @@ async def callback_handler(
             "1️⃣ First warning\n"
             "2️⃣ Second warning\n"
             "3️⃣ Third warning → mute\n\n"
-            "After the automatic mute, "
+            "After automatic mute, "
             "the warning counter is reset."
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
                 reply_markup=back_keyboard(),
             )
+
         except TelegramError:
             pass
 
         return
+
+    # --------------------------------------------------------
+    # MUTE
+    # --------------------------------------------------------
 
     if data == "mute":
 
@@ -1456,56 +1677,59 @@ async def callback_handler(
         )
 
         try:
+
             await query.edit_message_text(
                 text,
                 parse_mode="HTML",
                 reply_markup=back_keyboard(),
             )
+
         except TelegramError:
             pass
+
 
 # ============================================================
 # ERROR HANDLER
 # ============================================================
-
 
 async def error_handler(
     update,
     context,
 ):
 
-    logger.exception(
-        "Unhandled exception:",
+    logger.error(
+        "Unhandled exception: %s",
+        context.error,
         exc_info=context.error,
     )
 
-# ============================================================
-# POST INIT
-# ============================================================
 
+# ============================================================
+# BOT STARTUP
+# ============================================================
 
 async def post_init(application):
 
     try:
 
-        me = await application.bot.get_me()
+        bot = await application.bot.get_me()
 
         logger.info(
             "Bot started successfully: @%s",
-            me.username,
+            bot.username,
         )
 
-    except TelegramError as e:
+    except TelegramError as error:
 
         logger.error(
             "Bot startup check failed: %s",
-            e,
+            error,
         )
+
 
 # ============================================================
 # MAIN
 # ============================================================
-
 
 def main():
 
@@ -1577,7 +1801,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # MODERATION
+    # MESSAGE MODERATION
     # --------------------------------------------------------
 
     application.add_handler(
@@ -1592,7 +1816,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # ERRORS
+    # ERROR HANDLER
     # --------------------------------------------------------
 
     application.add_error_handler(
@@ -1604,7 +1828,7 @@ def main():
     )
 
     # --------------------------------------------------------
-    # RUN
+    # POLLING
     # --------------------------------------------------------
 
     application.run_polling(
@@ -1612,6 +1836,10 @@ def main():
         drop_pending_updates=True,
     )
 
+
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
     main()
